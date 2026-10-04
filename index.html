@@ -37,7 +37,8 @@ button.main{background:var(--cyan);color:var(--void);border-color:var(--cyan);fo
 button:disabled{opacity:.4}
 select{font-family:"Share Tech Mono",monospace;letter-spacing:.04em;padding:10px 6px;color:var(--white)}
 label.sel{display:flex;flex-direction:column;gap:3px;flex:1;font-family:"Share Tech Mono",monospace;font-size:9px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
-input[type=file]{display:none}
+.pick{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:100px;cursor:pointer}
 #voiceBox{flex:2}
 :focus-visible{outline:2px solid var(--magenta);outline-offset:2px}
 </style>
@@ -49,7 +50,7 @@ input[type=file]{display:none}
   <div class="readout"><span id="status">Standby</span><span id="pos"></span></div>
   <div class="track"><div class="fill" id="fill"></div></div>
   <main id="doc" tabindex="0"><div class="msg"><b>Open a file to begin</b>PDF, DOCX, TXT or image.<br>Image-only PDFs like manhwa use OCR.<br>Tap any sentence to read from there.</div></main>
-  <div class="row"><label class="btn" for="file">Open file</label><input id="file" type="file" accept=".pdf,.docx,.txt,.md,image/*,application/pdf,text/plain"><button id="prev">Prev</button><button id="next">Next</button></div>
+  <div class="row"><label class="btn pick">Open file<input id="file" type="file"></label><button id="prev">Prev</button><button id="next">Next</button></div>
   <div class="row"><button class="main" id="play">Play</button><button id="stop">Stop</button></div>
   <div class="row">
     <label class="sel">OCR<select id="ocr"><option value="auto">Auto</option><option value="comic">Comic</option><option value="off">Off</option></select></label>
