@@ -1,0 +1,37 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: npm install
+      - name: Assemble web app
+        run: |
+          N=node_modules
+          mkdir -p www/lib/tesseract/lang www/lib/fonts
+          cp index.html www/
+          cp $N/pdfjs-dist/build/pdf.min.js $N/pdfjs-dist/build/pdf.worker.min.js www/lib/
+          cp $N/mammoth/mammoth.browser.min.js www/lib/
+          cp $N/tesseract.js/dist/tesseract.min.js $N/tesseract.js/dist/worker.min.js www/lib/tesseract/
+          cp $N/tesseract.js-core/tesseract-core*.js $N/tesseract.js-core/tesseract-core*.wasm www/lib/tesseract/
+          cp $N/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz www/lib/tesseract/lang/
+          F=$N/@fontsource
+          cp $F/orbitron/files/orbitron-latin-500-normal.woff2 $F/orbitron/files/orbitron-latin-800-normal.woff2 www/lib/fonts/
+          cp $F/rajdhani/files/rajdhani-latin-500-normal.woff2 $F/rajdhani/files/rajdhani-latin-700-normal.woff2 www/lib/fonts/
+          cp $F/share-tech-mono/files/share-tech-mono-latin-400-normal.woff2 www/lib/fonts/
+      - run: npx cap add android
+      - name: Allow text-to-speech service lookup (Android 11+)
+        run: sed -i 's#</manifest>#<queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent></queries></manifest>#' android/app/src/main/AndroidManifest.xml
+      - run: npx cap sync android
+      - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ListenReader-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
