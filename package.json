@@ -1,0 +1,19 @@
+{
+  "name": "listen-reader",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@capacitor-community/text-to-speech": "^5.1.0",
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@fontsource/orbitron": "^5.0.0",
+    "@fontsource/rajdhani": "^5.0.0",
+    "@fontsource/share-tech-mono": "^5.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "mammoth": "1.6.0",
+    "pdfjs-dist": "3.11.174",
+    "tesseract.js": "5.1.1",
+    "tesseract.js-core": "5.1.1"
+  }
+}
