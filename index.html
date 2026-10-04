@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Listen Reader</title>
+<style>
+@font-face{font-family:Orbitron;font-weight:500;src:url(lib/fonts/orbitron-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:Orbitron;font-weight:800;src:url(lib/fonts/orbitron-latin-800-normal.woff2) format("woff2")}
+@font-face{font-family:Rajdhani;font-weight:500;src:url(lib/fonts/rajdhani-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:Rajdhani;font-weight:700;src:url(lib/fonts/rajdhani-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"Share Tech Mono";src:url(lib/fonts/share-tech-mono-latin-400-normal.woff2) format("woff2")}
+:root{--void:#030509;--panel:#060b12;--panel2:#091420;--cyan:#5ef3ff;--cyan-soft:#a6faff;--cyan-dim:#144654;--magenta:#ff5ecf;--white:#eafcff;--dim:#4d7480;--line:#163846}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--void)}
+body{font-family:Rajdhani,sans-serif;color:var(--white);display:flex;flex-direction:column;align-items:center;overflow:hidden;
+ padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(env(safe-area-inset-bottom,0px) + 12px);
+ background:radial-gradient(ellipse 60% 30% at 50% 0,rgba(94,243,255,.12),transparent 65%),radial-gradient(ellipse 45% 25% at 12% 100%,rgba(255,94,207,.07),transparent 65%),var(--void)}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(94,243,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(94,243,255,.045) 1px,transparent 1px);background-size:30px 30px;mask-image:radial-gradient(ellipse 65% 55% at 50% 15%,#000,transparent 78%);-webkit-mask-image:radial-gradient(ellipse 65% 55% at 50% 15%,#000,transparent 78%)}
+.wrap{position:relative;z-index:1;width:100%;max-width:560px;height:100%;display:flex;flex-direction:column;gap:10px;min-height:0}
+.eyebrow{font-family:Orbitron;font-size:10px;letter-spacing:.36em;text-transform:uppercase;color:var(--cyan);text-shadow:0 0 8px rgba(94,243,255,.7);text-align:center}
+h1{font-family:Orbitron;font-weight:800;font-size:19px;margin:2px 0 0;text-align:center;text-shadow:0 0 14px rgba(166,250,255,.4),0 0 2px rgba(255,94,207,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.readout{font-family:"Share Tech Mono",monospace;font-size:10px;letter-spacing:.08em;color:var(--dim);display:flex;justify-content:space-between;text-transform:uppercase}
+.readout span:first-child::before{content:"● ";color:var(--cyan)}
+.track{height:6px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.fill{height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--magenta));box-shadow:0 0 10px var(--cyan);transition:width .25s}
+#doc{flex:1;min-height:0;overflow-y:auto;background:var(--panel);border:1px solid var(--line);padding:16px;font-size:18px;line-height:1.65;font-weight:500;color:var(--white);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));-webkit-overflow-scrolling:touch}
+#doc p{margin:0 0 .9em}
+.s{cursor:pointer;border-radius:2px}
+.s.on{background:rgba(94,243,255,.18);color:var(--cyan-soft);box-shadow:0 0 0 2px rgba(94,243,255,.18),0 0 12px rgba(94,243,255,.25)}
+.msg{text-align:center;color:var(--dim);margin-top:14vh}
+.msg b{display:block;font-family:Orbitron;font-size:15px;color:var(--cyan);letter-spacing:.06em;margin-bottom:8px}
+.row{display:flex;gap:8px;align-items:center}
+button,select,.btn{font-family:Orbitron;font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);background:var(--panel2);border:1px solid var(--cyan-dim);padding:12px 8px;cursor:pointer;flex:1;text-align:center;border-radius:0;-webkit-appearance:none;appearance:none}
+button:active,.btn:active{background:var(--cyan-dim)}
+button.main{background:var(--cyan);color:var(--void);border-color:var(--cyan);font-weight:800;box-shadow:0 0 14px rgba(94,243,255,.45);flex:1.6}
+button:disabled{opacity:.4}
+select{font-family:"Share Tech Mono",monospace;letter-spacing:.04em;padding:10px 6px;color:var(--white)}
+label.sel{display:flex;flex-direction:column;gap:3px;flex:1;font-family:"Share Tech Mono",monospace;font-size:9px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
+.pick{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:100px;cursor:pointer}
+#voiceBox{flex:2}
+:focus-visible{outline:2px solid var(--magenta);outline-offset:2px}
+#doc{position:relative}
+#doc.comic{padding:0}
+.pg{position:relative;width:100%;background:#0a1018;overflow:hidden}
+.pg::before{content:"";display:block;padding-top:calc(var(--r)*100%)}
+.pg canvas{position:absolute;inset:0;width:100%;height:100%}
+.hl{position:absolute;border:2px solid var(--cyan);background:rgba(94,243,255,.14);box-shadow:0 0 16px var(--cyan);display:none;pointer-events:none;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Listen // Reader</div>
+  <h1 id="title">No file loaded</h1>
+  <div class="readout"><span id="status">Standby</span><span id="pos"></span></div>
+  <div class="track"><div class="fill" id="fill"></div></div>
+  <main id="doc" tabindex="0"><div class="msg"><b>Open a file to begin</b>PDF, DOCX, TXT or image.<br>Image-only PDFs like manhwa use OCR.<br>Tap any sentence to read from there.</div></main>
+  <div class="row"><label class="btn pick" id="openLbl">Open file<input id="file" type="file"></label><button id="prev">Prev</button><button id="next">Next</button></div>
+  <div class="row"><button class="main" id="play">Play</button><button id="stop">Stop</button></div>
+  <div class="row"><button id="asBtn">Auto-scroll: OFF</button><label class="sel">Scroll speed<select id="asSpeed"><option value="20">Slow</option><option value="45" selected>Medium</option><option value="90">Fast</option><option value="160">Very fast</option></select></label></div>
+  <div class="row">
+    <label class="sel">OCR<select id="ocr"><option value="auto">Auto</option><option value="comic">Comic</option><option value="off">Off</option></select></label>
+    <label class="sel">Speed<select id="rate"><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select></label>
+    <label class="sel">Font<select id="size"><option value="15">S</option><option value="18" selected>M</option><option value="21">L</option><option value="25">XL</option></select></label>
+    <label class="sel" id="voiceBox">Voice<select id="voice"></select></label>
+  </div>
+</div>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/mammoth.browser.min.js"></script>
+<script src="lib/tesseract/tesseract.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), doc=$('doc');
+const Cap=window.Capacitor, native=!!(Cap&&Cap.isNativePlatform&&Cap.isNativePlatform());
+const NTTS=native?Cap.registerPlugin('TextToSpeech'):null;
+pdfjsLib.GlobalWorkerOptions.workerSrc='lib/pdf.worker.min.js';
+let sents=[],idx=0,playing=false,token=0,busy=false,ocrWorker=null,ocrMode='',cm=null,docId=0;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const status=t=>$('status').textContent=t;
+const msg=(h,t)=>{doc.classList.remove('comic');doc.innerHTML='<div class="msg"><b>'+h+'</b>'+t+'</div>'};
+function updPos(){
+  if(cm){const b=cm.cq[cm.ci];$('pos').textContent='pg '+(b?b.p:1)+'/'+cm.src.n+' · ocr '+cm.ocrPages;$('fill').style.width=((b?b.p:0)/cm.src.n*100)+'%';return}
+  $('pos').textContent=sents.length?(idx+1)+' / '+sents.length:'';$('fill').style.width=sents.length?((idx+1)/sents.length*100)+'%':'0';
+}
+
+/* ---------- text view ---------- */
+function render(paras){
+  doc.classList.remove('comic');doc.innerHTML='';sents=[];idx=0;
+  paras.forEach(t=>{
+    const p=document.createElement('p');
+    (t.match(/[^.!?]+[.!?]*["')\]]*\s*/g)||[t]).forEach(s=>{
+      if(!s.trim())return;
+      const sp=document.createElement('span');sp.className='s';sp.textContent=s;
+      const i=sents.length;sp.onclick=()=>{idx=i;play()};sents.push(sp);p.appendChild(sp);
+    });
+    if(p.firstChild)doc.appendChild(p);
+  });
+  doc.scrollTop=0;updPos();
+  if(!sents.length)msg('No readable text','Nothing was recognised. Try OCR mode Comic, or a clearer file.');
+}
+
+/* ---------- OCR ---------- */
+async function getOcr(sparse){
+  if(!ocrWorker)ocrWorker=await Tesseract.createWorker('eng',1,{workerPath:'lib/tesseract/worker.min.js',corePath:'lib/tesseract/',langPath:'lib/tesseract/lang',workerBlobURL:false});
+  const m=sparse?'sparse':'auto';
+  if(ocrMode!==m){await ocrWorker.setParameters({tessedit_pageseg_mode:sparse?'11':'3'});ocrMode=m}
+  return ocrWorker;
+}
+function clean(raw,joinAll){
+  const ok=l=>{const a=(l.match(/[A-Za-z0-9]/g)||[]).length;return l.length>=2&&a>=2&&a/l.length>0.6};
+  const lines=raw.split('\n').map(l=>l.trim()).filter(ok);
+  if(joinAll)return [lines.join(' ')];
+  return raw.split(/\n\s*\n/).map(b=>b.split('\n').map(x=>x.trim()).filter(ok).join(' ')).filter(Boolean);
+}
+async function ocrTextCanvas(cv,sparse){
+  const w=await getOcr(sparse),out=[],H=2000;
+  for(let y=0;y<cv.height;y+=H){
+    const h=Math.min(H,cv.height-y),c=document.createElement('canvas');
+    c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
+    out.push(...clean((await w.recognize(c)).data.text,sparse));
+  }
+  return out;
+}
+
+/* ---------- sources ---------- */
+const MAXH=12000;
+function pdfSource(pdf){return{
+  n:pdf.numPages,
+  async size(i){const v=(await pdf.getPage(i)).getViewport({scale:1});return{w:v.width,h:v.height}},
+  async draw(i,cv,wpx){
+    const pg=await pdf.getPage(i),v0=pg.getViewport({scale:1});
+    wpx=Math.min(wpx,MAXH*v0.width/v0.height);
+    const v=pg.getViewport({scale:wpx/v0.width});cv.width=Math.round(v.width);cv.height=Math.round(v.height);
+    const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);
+    await pg.render({canvasContext:g,viewport:v}).promise;
+  },
+  async ocrCanvas(i){const cv=document.createElement('canvas');await this.draw(i,cv,1400);return cv}
+}}
+async function imageSource(blob){
+  const url=URL.createObjectURL(blob),img=new Image();img.src=url;await img.decode();
+  const draw=(cv,wpx)=>{wpx=Math.min(wpx,MAXH*img.width/img.height);cv.width=Math.round(wpx);cv.height=Math.round(wpx*img.height/img.width);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height)};
+  return{n:1,async size(){return{w:img.width,h:img.height}},async draw(i,cv,w){draw(cv,w)},async ocrCanvas(){const cv=document.createElement('canvas');draw(cv,Math.max(1400,img.width));return cv}};
+}
+
+/* ---------- page (comic) view ---------- */
+let pgObs=null;
+async function openComic(src){
+  const id=++docId;stop();sents=[];idx=0;
+  doc.innerHTML='';doc.classList.add('comic');doc.scrollTop=0;
+  const c=cm={id,src,pages:[],cq:[],ci:0,done:false,ocrPages:0};
+  if(pgObs)pgObs.disconnect();
+  pgObs=new IntersectionObserver(es=>es.forEach(e=>{const p=e.target._p;e.isIntersecting?showPage(c,p):hidePage(p)}),{root:doc,rootMargin:'200% 0px'});
+  for(let i=1;i<=src.n;i++){
+    if(id!==docId)return;
+    const {w,h}=await src.size(i);
+    const el=document.createElement('div');el.className='pg';el.style.setProperty('--r',(h/w).toFixed(4));
+    const cv=document.createElement('canvas'),hl=document.createElement('div');hl.className='hl';
+    el.append(cv,hl);doc.appendChild(el);
+    const p={i,el,cv,hl,on:false,busy:false};el._p=p;c.pages.push(p);
+    el.onclick=e=>{
+      const r=el.getBoundingClientRect(),y=(e.clientY-r.top)/r.height;
+      let k=c.cq.findIndex(b=>b.p===i&&b.box.y1>=y);if(k<0)k=c.cq.findIndex(b=>b.p>i);
+      if(k>=0){c.ci=k;playComic()}
+    };
+    pgObs.observe(el);
+    if(i%10===0)status('Indexing '+i+'/'+src.n);
+  }
+  status('Ready - OCR running');updPos();
+  ocrLoop(c);
+}
+async function showPage(c,p){
+  if(p.on||p.busy||c.id!==docId)return;p.busy=true;
+  try{await c.src.draw(p.i,p.cv,Math.min(1000,Math.round(doc.clientWidth*(window.devicePixelRatio||1))));p.on=true}catch(e){}
+  p.busy=false;
+}
+function hidePage(p){if(p.on){p.cv.width=0;p.cv.height=0;p.on=false}}
+async function ocrLoop(c){
+  for(let i=1;i<=c.src.n&&c.id===docId;i++){
+    try{
+      const cv=await c.src.ocrCanvas(i);if(c.id!==docId)return;
+      c.cq.push(...await ocrBubbles(cv,i));cv.width=cv.height=0;
+    }catch(e){}
+    c.ocrPages=i;if(!playing)updPos();
+  }
+  c.done=true;
+}
+async function ocrBubbles(cv,p){
+  const w=await getOcr(true),H=2000,lines=[];
+  for(let y=0;y<cv.height;y+=H){
+    const h=Math.min(H,cv.height-y),c=document.createElement('canvas');
+    c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
+    const r=await w.recognize(c);
+    (r.data.lines||[]).forEach(l=>{
+      const t=(l.text||'').replace(/\s+/g,' ').trim(),a=(t.match(/[A-Za-z0-9]/g)||[]).length;
+      if(t.length>=2&&a>=2&&a/t.length>0.6&&(l.confidence||0)>40)lines.push({t,x0:l.bbox.x0,x1:l.bbox.x1,y0:l.bbox.y0+y,y1:l.bbox.y1+y});
+    });
+  }
+  lines.sort((a,b)=>a.y0-b.y0);
+  const out=[],gap=cv.width*0.07;let g=null;
+  lines.forEach(l=>{
+    if(g&&l.y0-g.y1<=gap){g.t+=' '+l.t;g.x0=Math.min(g.x0,l.x0);g.x1=Math.max(g.x1,l.x1);g.y1=Math.max(g.y1,l.y1)}
+    else{if(g)out.push(g);g={t:l.t,x0:l.x0,x1:l.x1,y0:l.y0,y1:l.y1}}
+  });
+  if(g)out.push(g);
+  return out.filter(b=>(b.t.match(/[A-Za-z]/g)||[]).length>=3).map(b=>({p,text:b.t,box:{x0:b.x0/cv.width,x1:b.x1/cv.width,y0:b.y0/cv.height,y1:b.y1/cv.height}}));
+}
+
+/* smooth glide scroll toward the bubble being read */
+let gT=null,gPos=0,gLast=0,gOn=false;
+function gloop(t){
+  if(!gOn)return;const dt=Math.min(.1,(t-gLast)/1000);gLast=t;
+  if(gT!==null&&!asHold){
+    const d=gT-gPos;
+    if(Math.abs(d)<1.5)gT=null;else{gPos+=d*(1-Math.exp(-dt*1.4));doc.scrollTop=gPos}
+  }
+  requestAnimationFrame(gloop);
+}
+function glideTo(y){if(gT===null)gPos=doc.scrollTop;gT=Math.max(0,y);if(!gOn){gOn=true;gLast=performance.now();requestAnimationFrame(gloop)}}
+function focusB(b){
+  const c=cm,p=c.pages[b.p-1];if(!p)return;
+  c.pages.forEach(x=>x.hl.style.display='none');
+  const s=p.hl.style;s.left=b.box.x0*100+'%';s.top=b.box.y0*100+'%';s.width=(b.box.x1-b.box.x0)*100+'%';s.height=(b.box.y1-b.box.y0)*100+'%';s.display='block';
+  glideTo(p.el.offsetTop+(b.box.y0+b.box.y1)/2*p.el.offsetHeight-doc.clientHeight*0.4);
+  updPos();
+}
+async function playComic(){
+  const c=cm;if(!c)return;halt();const my=token;playing=true;$('play').textContent='Pause';status('Reading');
+  while(playing&&my===token){
+    while(c.ci>=c.cq.length){
+      if(c.done){stop(true);return}
+      status('Scanning text...');await sleep(300);if(my!==token)return;status('Reading');
+    }
+    const b=c.cq[c.ci];focusB(b);await say(b.text);
+    if(my!==token)return;c.ci++;
+  }
+}
+
+/* ---------- loaders ---------- */
+async function loadPdf(src){
+  const pdf=await pdfjsLib.getDocument(src instanceof ArrayBuffer?{data:src}:{url:src.url,rangeChunkSize:1<<20,disableAutoFetch:true}).promise;
+  return pdf;
+}
+async function readPdfText(pdf,mode){
+  const out=[];
+  for(let n=1;n<=pdf.numPages;n++){
+    status('Page '+n+'/'+pdf.numPages);$('fill').style.width=(n/pdf.numPages*100)+'%';
+    const page=await pdf.getPage(n);let paras=[];
+    const c=await page.getTextContent();let line='',cur='';
+    const flush=()=>{const l=line.trim();line='';if(!l)return;cur+=(cur?' ':'')+l;if(/[.!?:]$/.test(l)){paras.push(cur);cur=''}};
+    c.items.forEach(it=>{line+=it.str;if(it.hasEOL)flush();else line+=' '});flush();if(cur)paras.push(cur);
+    if(mode!=='off'&&paras.join('').replace(/\s/g,'').length<20){
+      const cv=document.createElement('canvas');await pdfSource(pdf).draw(n,cv,1400);
+      status('OCR page '+n+'/'+pdf.numPages);paras=await ocrTextCanvas(cv,false);
+    }
+    out.push(...paras);
+  }
+  return out;
+}
+async function pdfHasText(pdf){
+  let len=0;
+  for(let n=1;n<=Math.min(3,pdf.numPages);n++){
+    const c=await (await pdf.getPage(n)).getTextContent();len+=c.items.map(i=>i.str).join('').replace(/\s/g,'').length;
+  }
+  return len>=20;
+}
+const toBuf=async s=>s instanceof ArrayBuffer?s:await (await fetch(s.url)).arrayBuffer();
+async function openDoc(name,type,srcData){
+  if(busy)return;stop();busy=true;docId++;cm=null;$('title').textContent=name;msg('Loading','Please wait...');
+  const mode=$('ocr').value,ext=name.split('.').pop().toLowerCase();
+  try{
+    if(ext==='pdf'||type==='application/pdf'){
+      const pdf=await loadPdf(srcData);
+      if(mode==='comic'||(mode==='auto'&&!(await pdfHasText(pdf))))await openComic(pdfSource(pdf));
+      else{render((await readPdfText(pdf,mode)).map(x=>x.trim()).filter(Boolean));status('Ready')}
+    }else if(ext==='docx'){
+      render((await mammoth.extractRawText({arrayBuffer:await toBuf(srcData)})).value.split(/\n+/).map(x=>x.trim()).filter(Boolean));status('Ready');
+    }else if(ext==='doc'){msg('Old .doc not supported','Save it as DOCX or PDF and open again.');status('Standby')}
+    else if((type||'').startsWith('image/')||/^(png|jpe?g|webp|bmp)$/.test(ext)){
+      await openComic(await imageSource(new Blob([await toBuf(srcData)],{type:type||'image/png'})));
+    }else{
+      render(new TextDecoder().decode(await toBuf(srcData)).split(/\n+/).map(x=>x.trim()).filter(Boolean));status('Ready');
+    }
+  }catch(err){msg('Could not open file',String(err.message||err));status('Error')}
+  busy=false;
+}
+function b64ToBuf(b){const bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u.buffer}
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;await openDoc(f.name,f.type,await f.arrayBuffer());e.target.value=''};
+if(native){
+  const NFP=Cap.registerPlugin('FilePicker');
+  $('file').disabled=true;$('file').style.display='none';
+  $('openLbl').onclick=async()=>{
+    if(busy)return;status('Opening picker');
+    try{
+      let r=await NFP.pickFiles({limit:1}),f=r.files&&r.files[0];
+      if(!f){status('No file chosen');return}
+      let url='';try{url=Cap.convertFileSrc(f.path)}catch(e){}
+      if(!url||url===f.path)url=location.origin+'/_capacitor_content_'+f.path.replace(/^content:\//,'');
+      let ok=false;try{const pr=await fetch(url,{headers:{Range:'bytes=0-0'}});ok=pr.ok||pr.status===206}catch(e){}
+      if(ok){await openDoc(f.name,f.mimeType,{url})}
+      else{
+        status('Pick the same file again');
+        r=await NFP.pickFiles({limit:1,readData:true});f=r.files&&r.files[0];
+        if(!f){status('No file chosen');return}
+        status('Reading file');await openDoc(f.name,f.mimeType,b64ToBuf(f.data));
+      }
+    }catch(err){const m=String((err&&err.message)||err);if(/cancel/i.test(m))status('Standby');else{msg('Picker error',m);status('Error')}}
+  };
+}
+
+/* ---------- speech ---------- */
+let voices=[];
+function loadVoices(){
+  if(native)return;voices=speechSynthesis.getVoices();const v=$('voice');v.innerHTML='';
+  voices.forEach((x,i)=>{const o=document.createElement('option');o.value=i;o.textContent=x.name;v.appendChild(o)});
+  const d=voices.findIndex(x=>/en[-_]IN/i.test(x.lang));if(d>=0)v.value=d;
+}
+if(native)$('voiceBox').style.display='none';
+else if('speechSynthesis' in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices}
+else $('play').disabled=true;
+const rate=()=>parseFloat($('rate').value);
+function say(text){
+  if(native)return NTTS.speak({text,lang:'en-US',rate:rate(),pitch:1,volume:1,category:'ambient'}).catch(()=>{});
+  return new Promise(res=>{
+    const u=new SpeechSynthesisUtterance(text),v=voices[$('voice').value];
+    if(v){u.voice=v;u.lang=v.lang}u.rate=rate();u.onend=u.onerror=()=>res();speechSynthesis.speak(u);
+  });
+}
+function halt(){token++;if(native)NTTS.stop().catch(()=>{});else speechSynthesis.cancel()}
+function mark(){document.querySelectorAll('.s.on').forEach(x=>x.classList.remove('on'));const el=sents[idx];if(el){el.classList.add('on');el.scrollIntoView({block:'center',behavior:'smooth'})}updPos()}
+async function play(){
+  if(!sents.length)return;halt();const my=token;playing=true;$('play').textContent='Pause';status('Reading');
+  while(playing&&my===token&&idx<sents.length){
+    mark();await say(sents[idx].textContent.trim());
+    if(my!==token)return;idx++;
+  }
+  if(my===token){idx=Math.min(idx,sents.length-1);stop(true)}
+}
+function stop(done){
+  halt();playing=false;$('play').textContent='Play';status(done?'Finished':'Standby');
+  document.querySelectorAll('.s.on').forEach(x=>x.classList.remove('on'));
+  if(cm)cm.pages.forEach(x=>x.hl.style.display='none');
+}
+const go=()=>cm?playComic():play();
+$('play').onclick=()=>{
+  if(!sents.length&&!cm)return;
+  if(playing){halt();playing=false;$('play').textContent='Resume';status('Paused')}else go();
+};
+$('stop').onclick=()=>{stop();if(cm){cm.ci=0;doc.scrollTop=0}else idx=0;updPos()};
+const step=d=>{
+  if(cm){if(!cm.cq.length)return;cm.ci=Math.max(0,Math.min(cm.cq.length-1,cm.ci+d));playing?playComic():focusB(cm.cq[cm.ci]);return}
+  if(!sents.length)return;idx=Math.max(0,Math.min(sents.length-1,idx+d));playing?play():mark();
+};
+$('next').onclick=()=>step(1);$('prev').onclick=()=>step(-1);
+$('rate').onchange=()=>{if(playing)go()};$('voice').onchange=()=>{if(playing)go()};
+$('size').onchange=e=>doc.style.fontSize=e.target.value+'px';
+
+/* ---------- auto scroll (hands-free slow scroll) ---------- */
+let asOn=false,asPos=0,asLast=0,asHold=false,asTimer=null;
+function asLoop(t){
+  if(!asOn)return;const dt=Math.min(.1,(t-asLast)/1000);asLast=t;
+  if(asHold||playing||busy){asPos=doc.scrollTop}
+  else{
+    asPos+=parseFloat($('asSpeed').value)*dt;doc.scrollTop=asPos;
+    if(doc.scrollTop+doc.clientHeight>=doc.scrollHeight-2){toggleAS(false);status('End of text');return}
+  }
+  requestAnimationFrame(asLoop);
+}
+function toggleAS(on){
+  asOn=on;$('asBtn').textContent='Auto-scroll: '+(on?'ON':'OFF');
+  if(on){asPos=doc.scrollTop;asLast=performance.now();requestAnimationFrame(asLoop)}
+}
+$('asBtn').onclick=()=>toggleAS(!asOn);
+const holdStart=()=>{asHold=true;clearTimeout(asTimer)};
+const holdEnd=()=>{clearTimeout(asTimer);asTimer=setTimeout(()=>{asPos=doc.scrollTop;gPos=doc.scrollTop;asHold=false},1200)};
+doc.addEventListener('touchstart',holdStart,{passive:true});
+doc.addEventListener('touchend',holdEnd,{passive:true});
+doc.addEventListener('touchcancel',holdEnd,{passive:true});
+</script>
+</body>
+</html>
