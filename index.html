@@ -41,6 +41,12 @@ label.sel{display:flex;flex-direction:column;gap:3px;flex:1;font-family:"Share T
 .pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:100px;cursor:pointer}
 #voiceBox{flex:2}
 :focus-visible{outline:2px solid var(--magenta);outline-offset:2px}
+#doc{position:relative}
+#doc.comic{padding:0}
+.pg{position:relative;width:100%;background:#0a1018;overflow:hidden}
+.pg::before{content:"";display:block;padding-top:calc(var(--r)*100%)}
+.pg canvas{position:absolute;inset:0;width:100%;height:100%}
+.hl{position:absolute;border:2px solid var(--cyan);background:rgba(94,243,255,.14);box-shadow:0 0 16px var(--cyan);display:none;pointer-events:none;border-radius:4px}
 </style>
 </head>
 <body>
@@ -50,8 +56,9 @@ label.sel{display:flex;flex-direction:column;gap:3px;flex:1;font-family:"Share T
   <div class="readout"><span id="status">Standby</span><span id="pos"></span></div>
   <div class="track"><div class="fill" id="fill"></div></div>
   <main id="doc" tabindex="0"><div class="msg"><b>Open a file to begin</b>PDF, DOCX, TXT or image.<br>Image-only PDFs like manhwa use OCR.<br>Tap any sentence to read from there.</div></main>
-  <div class="row"><label class="btn pick">Open file<input id="file" type="file"></label><button id="prev">Prev</button><button id="next">Next</button></div>
+  <div class="row"><label class="btn pick" id="openLbl">Open file<input id="file" type="file"></label><button id="prev">Prev</button><button id="next">Next</button></div>
   <div class="row"><button class="main" id="play">Play</button><button id="stop">Stop</button></div>
+  <div class="row"><button id="asBtn">Auto-scroll: OFF</button><label class="sel">Scroll speed<select id="asSpeed"><option value="20">Slow</option><option value="45" selected>Medium</option><option value="90">Fast</option><option value="160">Very fast</option></select></label></div>
   <div class="row">
     <label class="sel">OCR<select id="ocr"><option value="auto">Auto</option><option value="comic">Comic</option><option value="off">Off</option></select></label>
     <label class="sel">Speed<select id="rate"><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select></label>
@@ -67,14 +74,18 @@ const $=id=>document.getElementById(id), doc=$('doc');
 const Cap=window.Capacitor, native=!!(Cap&&Cap.isNativePlatform&&Cap.isNativePlatform());
 const NTTS=native?Cap.registerPlugin('TextToSpeech'):null;
 pdfjsLib.GlobalWorkerOptions.workerSrc='lib/pdf.worker.min.js';
-let sents=[],idx=0,playing=false,token=0,busy=false,ocrWorker=null,ocrMode='';
+let sents=[],idx=0,playing=false,token=0,busy=false,ocrWorker=null,ocrMode='',cm=null,docId=0;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const status=t=>$('status').textContent=t;
-const msg=(h,t)=>doc.innerHTML='<div class="msg"><b>'+h+'</b>'+t+'</div>';
-function updPos(){$('pos').textContent=sents.length?(idx+1)+' / '+sents.length:'';$('fill').style.width=sents.length?((idx+1)/sents.length*100)+'%':'0'}
+const msg=(h,t)=>{doc.classList.remove('comic');doc.innerHTML='<div class="msg"><b>'+h+'</b>'+t+'</div>'};
+function updPos(){
+  if(cm){const b=cm.cq[cm.ci];$('pos').textContent='pg '+(b?b.p:1)+'/'+cm.src.n+' · ocr '+cm.ocrPages;$('fill').style.width=((b?b.p:0)/cm.src.n*100)+'%';return}
+  $('pos').textContent=sents.length?(idx+1)+' / '+sents.length:'';$('fill').style.width=sents.length?((idx+1)/sents.length*100)+'%':'0';
+}
 
-/* ---------- render ---------- */
+/* ---------- text view ---------- */
 function render(paras){
-  doc.innerHTML='';sents=[];idx=0;
+  doc.classList.remove('comic');doc.innerHTML='';sents=[];idx=0;
   paras.forEach(t=>{
     const p=document.createElement('p');
     (t.match(/[^.!?]+[.!?]*["')\]]*\s*/g)||[t]).forEach(s=>{
@@ -89,75 +100,212 @@ function render(paras){
 }
 
 /* ---------- OCR ---------- */
-async function getOcr(comic){
-  if(!ocrWorker)ocrWorker=await Tesseract.createWorker('eng',1,{workerPath:'lib/tesseract/worker.min.js',corePath:'lib/tesseract/',langPath:'lib/tesseract/lang',workerBlobURL:false,logger:m=>{if(m.status==='recognizing text')status('OCR '+Math.round(m.progress*100)+'%')}});
-  const mode=comic?'comic':'auto';
-  if(ocrMode!==mode){await ocrWorker.setParameters({tessedit_pageseg_mode:comic?'11':'3',preserve_interword_spaces:'0'});ocrMode=mode}
+async function getOcr(sparse){
+  if(!ocrWorker)ocrWorker=await Tesseract.createWorker('eng',1,{workerPath:'lib/tesseract/worker.min.js',corePath:'lib/tesseract/',langPath:'lib/tesseract/lang',workerBlobURL:false});
+  const m=sparse?'sparse':'auto';
+  if(ocrMode!==m){await ocrWorker.setParameters({tessedit_pageseg_mode:sparse?'11':'3'});ocrMode=m}
   return ocrWorker;
 }
-function clean(raw,comic){
-  const lines=raw.split('\n').map(l=>l.trim()).filter(l=>{
-    if(l.length<2)return false;
-    const a=(l.match(/[A-Za-z0-9]/g)||[]).length;
-    return a>=2&&a/l.length>0.6;
-  });
-  if(comic)return [lines.join(' ')];
-  return raw.split(/\n\s*\n/).map(b=>b.split('\n').map(x=>x.trim()).filter(x=>lines.includes(x)).join(' ')).filter(Boolean);
+function clean(raw,joinAll){
+  const ok=l=>{const a=(l.match(/[A-Za-z0-9]/g)||[]).length;return l.length>=2&&a>=2&&a/l.length>0.6};
+  const lines=raw.split('\n').map(l=>l.trim()).filter(ok);
+  if(joinAll)return [lines.join(' ')];
+  return raw.split(/\n\s*\n/).map(b=>b.split('\n').map(x=>x.trim()).filter(ok).join(' ')).filter(Boolean);
 }
-async function ocrCanvas(cv,comic){
-  const w=await getOcr(comic),out=[],H=2000;
+async function ocrTextCanvas(cv,sparse){
+  const w=await getOcr(sparse),out=[],H=2000;
   for(let y=0;y<cv.height;y+=H){
     const h=Math.min(H,cv.height-y),c=document.createElement('canvas');
     c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
-    const r=await w.recognize(c);out.push(...clean(r.data.text,comic));
+    out.push(...clean((await w.recognize(c)).data.text,sparse));
   }
   return out;
 }
 
+/* ---------- sources ---------- */
+const MAXH=12000;
+function pdfSource(pdf){return{
+  n:pdf.numPages,
+  async size(i){const v=(await pdf.getPage(i)).getViewport({scale:1});return{w:v.width,h:v.height}},
+  async draw(i,cv,wpx){
+    const pg=await pdf.getPage(i),v0=pg.getViewport({scale:1});
+    wpx=Math.min(wpx,MAXH*v0.width/v0.height);
+    const v=pg.getViewport({scale:wpx/v0.width});cv.width=Math.round(v.width);cv.height=Math.round(v.height);
+    const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);
+    await pg.render({canvasContext:g,viewport:v}).promise;
+  },
+  async ocrCanvas(i){const cv=document.createElement('canvas');await this.draw(i,cv,1400);return cv}
+}}
+async function imageSource(blob){
+  const url=URL.createObjectURL(blob),img=new Image();img.src=url;await img.decode();
+  const draw=(cv,wpx)=>{wpx=Math.min(wpx,MAXH*img.width/img.height);cv.width=Math.round(wpx);cv.height=Math.round(wpx*img.height/img.width);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height)};
+  return{n:1,async size(){return{w:img.width,h:img.height}},async draw(i,cv,w){draw(cv,w)},async ocrCanvas(){const cv=document.createElement('canvas');draw(cv,Math.max(1400,img.width));return cv}};
+}
+
+/* ---------- page (comic) view ---------- */
+let pgObs=null;
+async function openComic(src){
+  const id=++docId;stop();sents=[];idx=0;
+  doc.innerHTML='';doc.classList.add('comic');doc.scrollTop=0;
+  const c=cm={id,src,pages:[],cq:[],ci:0,done:false,ocrPages:0};
+  if(pgObs)pgObs.disconnect();
+  pgObs=new IntersectionObserver(es=>es.forEach(e=>{const p=e.target._p;e.isIntersecting?showPage(c,p):hidePage(p)}),{root:doc,rootMargin:'200% 0px'});
+  for(let i=1;i<=src.n;i++){
+    if(id!==docId)return;
+    const {w,h}=await src.size(i);
+    const el=document.createElement('div');el.className='pg';el.style.setProperty('--r',(h/w).toFixed(4));
+    const cv=document.createElement('canvas'),hl=document.createElement('div');hl.className='hl';
+    el.append(cv,hl);doc.appendChild(el);
+    const p={i,el,cv,hl,on:false,busy:false};el._p=p;c.pages.push(p);
+    el.onclick=e=>{
+      const r=el.getBoundingClientRect(),y=(e.clientY-r.top)/r.height;
+      let k=c.cq.findIndex(b=>b.p===i&&b.box.y1>=y);if(k<0)k=c.cq.findIndex(b=>b.p>i);
+      if(k>=0){c.ci=k;playComic()}
+    };
+    pgObs.observe(el);
+    if(i%10===0)status('Indexing '+i+'/'+src.n);
+  }
+  status('Ready - OCR running');updPos();
+  ocrLoop(c);
+}
+async function showPage(c,p){
+  if(p.on||p.busy||c.id!==docId)return;p.busy=true;
+  try{await c.src.draw(p.i,p.cv,Math.min(1000,Math.round(doc.clientWidth*(window.devicePixelRatio||1))));p.on=true}catch(e){}
+  p.busy=false;
+}
+function hidePage(p){if(p.on){p.cv.width=0;p.cv.height=0;p.on=false}}
+async function ocrLoop(c){
+  for(let i=1;i<=c.src.n&&c.id===docId;i++){
+    try{
+      const cv=await c.src.ocrCanvas(i);if(c.id!==docId)return;
+      c.cq.push(...await ocrBubbles(cv,i));cv.width=cv.height=0;
+    }catch(e){}
+    c.ocrPages=i;if(!playing)updPos();
+  }
+  c.done=true;
+}
+async function ocrBubbles(cv,p){
+  const w=await getOcr(true),H=2000,lines=[];
+  for(let y=0;y<cv.height;y+=H){
+    const h=Math.min(H,cv.height-y),c=document.createElement('canvas');
+    c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
+    const r=await w.recognize(c);
+    (r.data.lines||[]).forEach(l=>{
+      const t=(l.text||'').replace(/\s+/g,' ').trim(),a=(t.match(/[A-Za-z0-9]/g)||[]).length;
+      if(t.length>=2&&a>=2&&a/t.length>0.6&&(l.confidence||0)>40)lines.push({t,x0:l.bbox.x0,x1:l.bbox.x1,y0:l.bbox.y0+y,y1:l.bbox.y1+y});
+    });
+  }
+  lines.sort((a,b)=>a.y0-b.y0);
+  const out=[],gap=cv.width*0.07;let g=null;
+  lines.forEach(l=>{
+    if(g&&l.y0-g.y1<=gap){g.t+=' '+l.t;g.x0=Math.min(g.x0,l.x0);g.x1=Math.max(g.x1,l.x1);g.y1=Math.max(g.y1,l.y1)}
+    else{if(g)out.push(g);g={t:l.t,x0:l.x0,x1:l.x1,y0:l.y0,y1:l.y1}}
+  });
+  if(g)out.push(g);
+  return out.filter(b=>(b.t.match(/[A-Za-z]/g)||[]).length>=3).map(b=>({p,text:b.t,box:{x0:b.x0/cv.width,x1:b.x1/cv.width,y0:b.y0/cv.height,y1:b.y1/cv.height}}));
+}
+
+/* smooth glide scroll toward the bubble being read */
+let gT=null,gPos=0,gLast=0,gOn=false;
+function gloop(t){
+  if(!gOn)return;const dt=Math.min(.1,(t-gLast)/1000);gLast=t;
+  if(gT!==null&&!asHold){
+    const d=gT-gPos;
+    if(Math.abs(d)<1.5)gT=null;else{gPos+=d*(1-Math.exp(-dt*1.4));doc.scrollTop=gPos}
+  }
+  requestAnimationFrame(gloop);
+}
+function glideTo(y){if(gT===null)gPos=doc.scrollTop;gT=Math.max(0,y);if(!gOn){gOn=true;gLast=performance.now();requestAnimationFrame(gloop)}}
+function focusB(b){
+  const c=cm,p=c.pages[b.p-1];if(!p)return;
+  c.pages.forEach(x=>x.hl.style.display='none');
+  const s=p.hl.style;s.left=b.box.x0*100+'%';s.top=b.box.y0*100+'%';s.width=(b.box.x1-b.box.x0)*100+'%';s.height=(b.box.y1-b.box.y0)*100+'%';s.display='block';
+  glideTo(p.el.offsetTop+(b.box.y0+b.box.y1)/2*p.el.offsetHeight-doc.clientHeight*0.4);
+  updPos();
+}
+async function playComic(){
+  const c=cm;if(!c)return;halt();const my=token;playing=true;$('play').textContent='Pause';status('Reading');
+  while(playing&&my===token){
+    while(c.ci>=c.cq.length){
+      if(c.done){stop(true);return}
+      status('Scanning text...');await sleep(300);if(my!==token)return;status('Reading');
+    }
+    const b=c.cq[c.ci];focusB(b);await say(b.text);
+    if(my!==token)return;c.ci++;
+  }
+}
+
 /* ---------- loaders ---------- */
-async function readPdf(buf,mode){
-  const pdf=await pdfjsLib.getDocument({data:buf}).promise,out=[],comic=mode==='comic';
+async function loadPdf(src){
+  const pdf=await pdfjsLib.getDocument(src instanceof ArrayBuffer?{data:src}:{url:src.url,rangeChunkSize:1<<20,disableAutoFetch:true}).promise;
+  return pdf;
+}
+async function readPdfText(pdf,mode){
+  const out=[];
   for(let n=1;n<=pdf.numPages;n++){
     status('Page '+n+'/'+pdf.numPages);$('fill').style.width=(n/pdf.numPages*100)+'%';
     const page=await pdf.getPage(n);let paras=[];
-    if(mode!=='comic'){
-      const c=await page.getTextContent();let line='',cur='';
-      const flush=()=>{const l=line.trim();line='';if(!l)return;cur+=(cur?' ':'')+l;if(/[.!?:]$/.test(l)){paras.push(cur);cur=''}};
-      c.items.forEach(it=>{line+=it.str;if(it.hasEOL)flush();else line+=' '});flush();if(cur)paras.push(cur);
-    }
-    if(mode!=='off'&&(mode==='comic'||paras.join('').replace(/\s/g,'').length<20)){
-      const v0=page.getViewport({scale:1});let sc=Math.min(3,Math.max(1,1400/v0.width));
-      if(v0.height*sc>12000)sc=12000/v0.height;
-      const v=page.getViewport({scale:sc}),cv=document.createElement('canvas');cv.width=v.width;cv.height=v.height;
-      const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);
-      await page.render({canvasContext:g,viewport:v}).promise;
-      status('OCR page '+n+'/'+pdf.numPages);paras=await ocrCanvas(cv,comic);
+    const c=await page.getTextContent();let line='',cur='';
+    const flush=()=>{const l=line.trim();line='';if(!l)return;cur+=(cur?' ':'')+l;if(/[.!?:]$/.test(l)){paras.push(cur);cur=''}};
+    c.items.forEach(it=>{line+=it.str;if(it.hasEOL)flush();else line+=' '});flush();if(cur)paras.push(cur);
+    if(mode!=='off'&&paras.join('').replace(/\s/g,'').length<20){
+      const cv=document.createElement('canvas');await pdfSource(pdf).draw(n,cv,1400);
+      status('OCR page '+n+'/'+pdf.numPages);paras=await ocrTextCanvas(cv,false);
     }
     out.push(...paras);
   }
   return out;
 }
-async function readImage(file,mode){
-  const url=URL.createObjectURL(file),img=new Image();img.src=url;await img.decode();
-  const cv=document.createElement('canvas'),sc=Math.max(1,Math.min(3,1400/img.width));
-  cv.width=img.width*sc;cv.height=img.height*sc;cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
-  URL.revokeObjectURL(url);status('OCR');return ocrCanvas(cv,mode==='comic');
+async function pdfHasText(pdf){
+  let len=0;
+  for(let n=1;n<=Math.min(3,pdf.numPages);n++){
+    const c=await (await pdf.getPage(n)).getTextContent();len+=c.items.map(i=>i.str).join('').replace(/\s/g,'').length;
+  }
+  return len>=20;
 }
-$('file').onchange=async e=>{
-  const f=e.target.files[0];if(!f||busy)return;
-  stop();busy=true;$('title').textContent=f.name;msg('Loading','Please wait...');
-  const mode=$('ocr').value,ext=f.name.split('.').pop().toLowerCase();
+const toBuf=async s=>s instanceof ArrayBuffer?s:await (await fetch(s.url)).arrayBuffer();
+async function openDoc(name,type,srcData){
+  if(busy)return;stop();busy=true;docId++;cm=null;$('title').textContent=name;msg('Loading','Please wait...');
+  const mode=$('ocr').value,ext=name.split('.').pop().toLowerCase();
   try{
-    let paras;
-    if(ext==='pdf'||f.type==='application/pdf')paras=await readPdf(await f.arrayBuffer(),mode);
-    else if(ext==='docx')paras=(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value.split(/\n+/);
-    else if(ext==='doc'){msg('Old .doc not supported','Save it as DOCX or PDF and open again.');busy=false;status('Standby');return}
-    else if(f.type.startsWith('image/'))paras=await readImage(f,mode==='off'?'auto':mode);
-    else paras=(await f.text()).split(/\n+/);
-    render(paras.map(s=>s.trim()).filter(Boolean));status('Ready');
+    if(ext==='pdf'||type==='application/pdf'){
+      const pdf=await loadPdf(srcData);
+      if(mode==='comic'||(mode==='auto'&&!(await pdfHasText(pdf))))await openComic(pdfSource(pdf));
+      else{render((await readPdfText(pdf,mode)).map(x=>x.trim()).filter(Boolean));status('Ready')}
+    }else if(ext==='docx'){
+      render((await mammoth.extractRawText({arrayBuffer:await toBuf(srcData)})).value.split(/\n+/).map(x=>x.trim()).filter(Boolean));status('Ready');
+    }else if(ext==='doc'){msg('Old .doc not supported','Save it as DOCX or PDF and open again.');status('Standby')}
+    else if((type||'').startsWith('image/')||/^(png|jpe?g|webp|bmp)$/.test(ext)){
+      await openComic(await imageSource(new Blob([await toBuf(srcData)],{type:type||'image/png'})));
+    }else{
+      render(new TextDecoder().decode(await toBuf(srcData)).split(/\n+/).map(x=>x.trim()).filter(Boolean));status('Ready');
+    }
   }catch(err){msg('Could not open file',String(err.message||err));status('Error')}
-  busy=false;e.target.value='';
-};
+  busy=false;
+}
+function b64ToBuf(b){const bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u.buffer}
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;await openDoc(f.name,f.type,await f.arrayBuffer());e.target.value=''};
+if(native){
+  const NFP=Cap.registerPlugin('FilePicker');
+  $('file').disabled=true;$('file').style.display='none';
+  $('openLbl').onclick=async()=>{
+    if(busy)return;status('Opening picker');
+    try{
+      let r=await NFP.pickFiles({limit:1}),f=r.files&&r.files[0];
+      if(!f){status('No file chosen');return}
+      let url='';try{url=Cap.convertFileSrc(f.path)}catch(e){}
+      if(!url||url===f.path)url=location.origin+'/_capacitor_content_'+f.path.replace(/^content:\//,'');
+      let ok=false;try{const pr=await fetch(url,{headers:{Range:'bytes=0-0'}});ok=pr.ok||pr.status===206}catch(e){}
+      if(ok){await openDoc(f.name,f.mimeType,{url})}
+      else{
+        status('Pick the same file again');
+        r=await NFP.pickFiles({limit:1,readData:true});f=r.files&&r.files[0];
+        if(!f){status('No file chosen');return}
+        status('Reading file');await openDoc(f.name,f.mimeType,b64ToBuf(f.data));
+      }
+    }catch(err){const m=String((err&&err.message)||err);if(/cancel/i.test(m))status('Standby');else{msg('Picker error',m);status('Error')}}
+  };
+}
 
 /* ---------- speech ---------- */
 let voices=[];
@@ -187,13 +335,46 @@ async function play(){
   }
   if(my===token){idx=Math.min(idx,sents.length-1);stop(true)}
 }
-function stop(done){halt();playing=false;$('play').textContent='Play';status(done?'Finished':'Standby');if(!done)document.querySelectorAll('.s.on').forEach(x=>x.classList.remove('on'))}
-$('play').onclick=()=>{if(playing){halt();playing=false;$('play').textContent='Resume';status('Paused')}else play()};
-$('stop').onclick=()=>{stop();idx=0;updPos()};
-const step=d=>{if(!sents.length)return;idx=Math.max(0,Math.min(sents.length-1,idx+d));playing?play():mark()};
+function stop(done){
+  halt();playing=false;$('play').textContent='Play';status(done?'Finished':'Standby');
+  document.querySelectorAll('.s.on').forEach(x=>x.classList.remove('on'));
+  if(cm)cm.pages.forEach(x=>x.hl.style.display='none');
+}
+const go=()=>cm?playComic():play();
+$('play').onclick=()=>{
+  if(!sents.length&&!cm)return;
+  if(playing){halt();playing=false;$('play').textContent='Resume';status('Paused')}else go();
+};
+$('stop').onclick=()=>{stop();if(cm){cm.ci=0;doc.scrollTop=0}else idx=0;updPos()};
+const step=d=>{
+  if(cm){if(!cm.cq.length)return;cm.ci=Math.max(0,Math.min(cm.cq.length-1,cm.ci+d));playing?playComic():focusB(cm.cq[cm.ci]);return}
+  if(!sents.length)return;idx=Math.max(0,Math.min(sents.length-1,idx+d));playing?play():mark();
+};
 $('next').onclick=()=>step(1);$('prev').onclick=()=>step(-1);
-$('rate').onchange=()=>{if(playing)play()};$('voice').onchange=()=>{if(playing)play()};
+$('rate').onchange=()=>{if(playing)go()};$('voice').onchange=()=>{if(playing)go()};
 $('size').onchange=e=>doc.style.fontSize=e.target.value+'px';
+
+/* ---------- auto scroll (hands-free slow scroll) ---------- */
+let asOn=false,asPos=0,asLast=0,asHold=false,asTimer=null;
+function asLoop(t){
+  if(!asOn)return;const dt=Math.min(.1,(t-asLast)/1000);asLast=t;
+  if(asHold||playing||busy){asPos=doc.scrollTop}
+  else{
+    asPos+=parseFloat($('asSpeed').value)*dt;doc.scrollTop=asPos;
+    if(doc.scrollTop+doc.clientHeight>=doc.scrollHeight-2){toggleAS(false);status('End of text');return}
+  }
+  requestAnimationFrame(asLoop);
+}
+function toggleAS(on){
+  asOn=on;$('asBtn').textContent='Auto-scroll: '+(on?'ON':'OFF');
+  if(on){asPos=doc.scrollTop;asLast=performance.now();requestAnimationFrame(asLoop)}
+}
+$('asBtn').onclick=()=>toggleAS(!asOn);
+const holdStart=()=>{asHold=true;clearTimeout(asTimer)};
+const holdEnd=()=>{clearTimeout(asTimer);asTimer=setTimeout(()=>{asPos=doc.scrollTop;gPos=doc.scrollTop;asHold=false},1200)};
+doc.addEventListener('touchstart',holdStart,{passive:true});
+doc.addEventListener('touchend',holdEnd,{passive:true});
+doc.addEventListener('touchcancel',holdEnd,{passive:true});
 </script>
 </body>
 </html>
